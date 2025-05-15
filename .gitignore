@@ -1,0 +1,40 @@
+# Entornos virtuales
+venv/
+.env
+*.env
+
+# Compilados y cachés de Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Archivos temporales
+*.log
+*.tmp
+*.bak
+
+# Archivos binarios y ejecutables
+*.exe
+*.dll
+*.so
+*.pkg
+*.deb
+*.tar
+*.gz
+
+# Directorios de distribución (como los de PyInstaller o cx_Freeze)
+dist/
+build/
+*.spec
+
+# Archivos ocultos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de entorno de desarrollo
+.vscode/
+.idea/
+
+# Git
+*.swp

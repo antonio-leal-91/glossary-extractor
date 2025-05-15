@@ -7,7 +7,7 @@ from lxml import etree
 import tempfile
 import re
 import requests
-import openai
+from openai import OpenAI, RateLimitError
 from werkzeug.exceptions import RequestEntityTooLarge
 
 app = Flask(__name__)
@@ -17,8 +17,8 @@ app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
 
-# Tamaño de bloques para evitar cuelgues
-BLOCK_SIZE = 3000
+client = OpenAI(api_key=OPENAI_KEY)
+BLOCK_SIZE = 3000  # Tamaño de bloque
 
 def limpiar_termino(termino):
     termino = termino.strip("-•*1234567890. ").strip()
@@ -65,19 +65,22 @@ def extract_text(file):
 def get_terms_openai(text, source_lang, target_lang):
     if not text.strip():
         return ""
+
     prompt = (
         f"Del siguiente texto en {source_lang}, extrae aproximadamente 10 términos clave por cada 1000 palabras, uno por línea. "
         f"Para cada término, proporciona una traducción sugerida al {target_lang} separada por tabulador. Evita repeticiones. "
         f"Conserva nombres propios y siglas, y usa minúsculas para términos generales.\n\nTexto:\n{text}"
     )
+
     try:
-        openai.api_key = OPENAI_KEY
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
         return response.choices[0].message.content.strip()
-    except openai.error.OpenAIError as e:
+    except RateLimitError:
+        return ""
+    except Exception as e:
         print("OpenAI Error:", e)
         return ""
 

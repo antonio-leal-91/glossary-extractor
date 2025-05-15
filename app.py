@@ -13,11 +13,12 @@ from openai import OpenAI, RateLimitError
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB
 
-# Leer claves desde variables de entorno
+# Leer claves desde entorno
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
 
-BLOCK_SIZE = 9000  # Dividir texto largo para GPT
+# Dividir texto para que no se bloquee
+BLOCK_SIZE = 3000
 
 def limpiar_termino(termino):
     termino = termino.strip("-•*1234567890. ").strip()
@@ -69,13 +70,14 @@ def get_terms_openai(text, source_lang, target_lang):
     try:
         client = OpenAI(api_key=OPENAI_KEY)
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
         return response.choices[0].message.content.strip()
     except RateLimitError:
         return ""
-    except Exception:
+    except Exception as e:
+        print("OpenAI Error:", e)
         return ""
 
 def get_terms_deepseek(text, source_lang, target_lang):
@@ -96,7 +98,8 @@ def get_terms_deepseek(text, source_lang, target_lang):
             }
         )
         return response.json().get('choices', [{}])[0].get('message', {}).get('content', '').strip()
-    except Exception:
+    except Exception as e:
+        print("DeepSeek Error:", e)
         return ""
 
 @app.route("/")

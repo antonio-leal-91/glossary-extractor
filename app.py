@@ -7,17 +7,17 @@ from lxml import etree
 import tempfile
 import re
 import requests
+import openai
 from werkzeug.exceptions import RequestEntityTooLarge
-from openai import OpenAI, RateLimitError
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB
 
-# Leer claves desde entorno
+# Claves desde entorno
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
 
-# Dividir texto para que no se bloquee
+# Tamaño de bloques para evitar cuelgues
 BLOCK_SIZE = 3000
 
 def limpiar_termino(termino):
@@ -32,30 +32,33 @@ def extract_text(file):
     filename = file.filename.lower()
     text = ""
 
-    if filename.endswith(".xlsx"):
-        xls = pd.ExcelFile(file)
-        for sheet in xls.sheet_names:
-            df = xls.parse(sheet)
-            text += " " + " ".join(df.astype(str).values.flatten())
+    try:
+        if filename.endswith(".xlsx"):
+            xls = pd.ExcelFile(file)
+            for sheet in xls.sheet_names:
+                df = xls.parse(sheet)
+                text += " " + " ".join(df.astype(str).values.flatten())
 
-    elif filename.endswith(".csv"):
-        df = pd.read_csv(file)
-        text = " ".join(df.astype(str).values.flatten())
+        elif filename.endswith(".csv"):
+            df = pd.read_csv(file)
+            text = " ".join(df.astype(str).values.flatten())
 
-    elif filename.endswith(".pdf"):
-        with pdfplumber.open(file) as pdf:
-            text = " ".join(page.extract_text() or "" for page in pdf.pages)
+        elif filename.endswith(".pdf"):
+            with pdfplumber.open(file) as pdf:
+                text = " ".join(page.extract_text() or "" for page in pdf.pages)
 
-    elif filename.endswith(".docx"):
-        doc = Document(file)
-        text = " ".join(p.text for p in doc.paragraphs)
+        elif filename.endswith(".docx"):
+            doc = Document(file)
+            text = " ".join(p.text for p in doc.paragraphs)
 
-    elif filename.endswith((".xliff", ".sdlxliff")):
-        tree = etree.parse(file)
-        text = " ".join(tree.xpath("//trans-unit/source/text()"))
+        elif filename.endswith((".xliff", ".sdlxliff")):
+            tree = etree.parse(file)
+            text = " ".join(tree.xpath("//trans-unit/source/text()"))
 
-    elif filename.endswith(".txt"):
-        text = file.read().decode("utf-8")
+        elif filename.endswith(".txt"):
+            text = file.read().decode("utf-8")
+    except Exception as e:
+        print("Error extrayendo texto:", e)
 
     return text
 
@@ -68,15 +71,13 @@ def get_terms_openai(text, source_lang, target_lang):
         f"Conserva nombres propios y siglas, y usa minúsculas para términos generales.\n\nTexto:\n{text}"
     )
     try:
-        client = OpenAI(api_key=OPENAI_KEY)
-        response = client.chat.completions.create(
+        openai.api_key = OPENAI_KEY
+        response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
         return response.choices[0].message.content.strip()
-    except RateLimitError:
-        return ""
-    except Exception as e:
+    except openai.error.OpenAIError as e:
         print("OpenAI Error:", e)
         return ""
 

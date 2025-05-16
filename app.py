@@ -13,15 +13,16 @@ from werkzeug.exceptions import RequestEntityTooLarge
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB
 
-# Configurar claves desde entorno
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
-openai.api_key = OPENAI_KEY  # Estilo clásico sin conflictos de proxies
+openai.api_key = OPENAI_KEY
 
-BLOCK_SIZE = 3000  # Segmentación para evitar timeouts
+BLOCK_SIZE = 3000
 
 def limpiar_termino(termino):
     termino = termino.strip("-•*1234567890. ").strip()
+    if not termino or len(termino) < 2:
+        return ""
     if termino.isupper():
         return termino
     if re.match(r"^[A-Z][a-z]+(\s[A-Z][a-z]+)*$", termino):
@@ -31,47 +32,38 @@ def limpiar_termino(termino):
 def extract_text(file):
     filename = file.filename.lower()
     text = ""
-
     try:
         if filename.endswith(".xlsx"):
             xls = pd.ExcelFile(file)
             for sheet in xls.sheet_names:
                 df = xls.parse(sheet)
                 text += " " + " ".join(df.astype(str).values.flatten())
-
         elif filename.endswith(".csv"):
             df = pd.read_csv(file)
             text = " ".join(df.astype(str).values.flatten())
-
         elif filename.endswith(".pdf"):
             with pdfplumber.open(file) as pdf:
                 text = " ".join(page.extract_text() or "" for page in pdf.pages)
-
         elif filename.endswith(".docx"):
             doc = Document(file)
             text = " ".join(p.text for p in doc.paragraphs)
-
         elif filename.endswith((".xliff", ".sdlxliff")):
             tree = etree.parse(file)
             text = " ".join(tree.xpath("//trans-unit/source/text()"))
-
         elif filename.endswith(".txt"):
             text = file.read().decode("utf-8")
     except Exception as e:
         print("Error extrayendo texto:", e)
-
     return text
 
 def get_terms_openai(text, source_lang, target_lang):
     if not text.strip():
         return ""
-
     prompt = (
         f"Del siguiente texto en {source_lang}, extrae aproximadamente 10 términos clave por cada 1000 palabras, uno por línea. "
         f"Para cada término, proporciona una traducción sugerida al {target_lang} separada por tabulador. Evita repeticiones. "
         f"Conserva nombres propios y siglas, y usa minúsculas para términos generales.\n\nTexto:\n{text}"
     )
-
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -128,9 +120,12 @@ def process_file():
         for line in raw.splitlines():
             if "\t" in line:
                 source, target = line.split("\t", 1)
-                term = {"source": limpiar_termino(source), "target": target.strip()}
-                if term not in all_terms:
-                    all_terms.append(term)
+                source = limpiar_termino(source)
+                target = limpiar_termino(target)
+                if source and target:
+                    term = {"source": source, "target": target}
+                    if term not in all_terms:
+                        all_terms.append(term)
 
     return jsonify({"terms": all_terms, "source_lang": source_lang, "target_lang": target_lang})
 

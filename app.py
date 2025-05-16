@@ -21,7 +21,10 @@ openai.api_key = OPENAI_KEY
 BLOCK_SIZE = 3000  # Segmentación para evitar timeouts
 
 def limpiar_termino(termino):
-    termino = termino.strip("-•*1234567890. ").strip()
+    termino = re.sub(r"^[\-•*–—]+", "", termino)  # elimina guiones/viñetas iniciales
+    termino = re.sub(r"\s+", " ", termino).strip()
+    if not termino:
+        return ""
     if termino.isupper():
         return termino
     if re.match(r"^[A-Z][a-z]+(\s[A-Z][a-z]+)*$", termino):
@@ -31,38 +34,47 @@ def limpiar_termino(termino):
 def extract_text(file):
     filename = file.filename.lower()
     text = ""
+
     try:
         if filename.endswith(".xlsx"):
             xls = pd.ExcelFile(file)
             for sheet in xls.sheet_names:
                 df = xls.parse(sheet)
                 text += " " + " ".join(df.astype(str).values.flatten())
+
         elif filename.endswith(".csv"):
             df = pd.read_csv(file)
             text = " ".join(df.astype(str).values.flatten())
+
         elif filename.endswith(".pdf"):
             with pdfplumber.open(file) as pdf:
                 text = " ".join(page.extract_text() or "" for page in pdf.pages)
+
         elif filename.endswith(".docx"):
             doc = Document(file)
             text = " ".join(p.text for p in doc.paragraphs)
+
         elif filename.endswith((".xliff", ".sdlxliff")):
             tree = etree.parse(file)
             text = " ".join(tree.xpath("//trans-unit/source/text()"))
+
         elif filename.endswith(".txt"):
             text = file.read().decode("utf-8")
     except Exception as e:
         print("Error extrayendo texto:", e)
+
     return text
 
 def get_terms_openai(text, source_lang, target_lang):
     if not text.strip():
         return ""
+
     prompt = (
         f"Del siguiente texto en {source_lang}, extrae aproximadamente 10 términos clave por cada 1000 palabras, uno por línea. "
         f"Para cada término, proporciona una traducción sugerida al {target_lang} separada por tabulador. Evita repeticiones. "
         f"Conserva nombres propios y siglas, y usa minúsculas para términos generales.\n\nTexto:\n{text}"
     )
+
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -117,12 +129,12 @@ def process_file():
         raw = get_terms_deepseek(block, source_lang, target_lang) if provider == "deepseek" else get_terms_openai(block, source_lang, target_lang)
 
         for line in raw.splitlines():
-            line = line.strip("•*-–—•\t ").strip()
+            line = line.strip().lstrip("-•*–—\t ").strip()
             if "\t" in line:
                 source, target = line.split("\t", 1)
                 source = limpiar_termino(source)
                 target = limpiar_termino(target)
-                if source and target:
+                if source and target and len(source) > 1 and len(target) > 1:
                     term = {"source": source, "target": target}
                     if term not in all_terms:
                         all_terms.append(term)

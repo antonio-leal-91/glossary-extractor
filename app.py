@@ -13,16 +13,15 @@ from werkzeug.exceptions import RequestEntityTooLarge
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB
 
+# Configurar claves desde entorno
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
 openai.api_key = OPENAI_KEY
 
-BLOCK_SIZE = 3000
+BLOCK_SIZE = 3000  # Segmentación para evitar timeouts
 
 def limpiar_termino(termino):
     termino = termino.strip("-•*1234567890. ").strip()
-    if not termino or len(termino) < 2:
-        return ""
     if termino.isupper():
         return termino
     if re.match(r"^[A-Z][a-z]+(\s[A-Z][a-z]+)*$", termino):
@@ -118,6 +117,7 @@ def process_file():
         raw = get_terms_deepseek(block, source_lang, target_lang) if provider == "deepseek" else get_terms_openai(block, source_lang, target_lang)
 
         for line in raw.splitlines():
+            line = line.strip("•*-–—•\t ").strip()
             if "\t" in line:
                 source, target = line.split("\t", 1)
                 source = limpiar_termino(source)

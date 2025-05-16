@@ -3,7 +3,10 @@ services:
     name: glossary-extractor
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      pip uninstall -y openai
+      pip install openai==1.21.1
+      pip install -r requirements.txt
     startCommand: gunicorn app:app --timeout 300
     envVars:
       - key: OPENAI_API_KEY

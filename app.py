@@ -7,7 +7,7 @@ from lxml import etree
 import tempfile
 import re
 import requests
-from openai import OpenAI
+import openai
 from werkzeug.exceptions import RequestEntityTooLarge
 
 app = Flask(__name__)
@@ -16,20 +16,25 @@ app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB
 # Configurar claves desde entorno
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
-client = OpenAI(api_key=OPENAI_KEY)
+openai.api_key = OPENAI_KEY
 
 BLOCK_SIZE = 1500  # Segmentación para evitar timeouts
 
+
 def limpiar_termino(termino):
-    termino = re.sub(r"^[\-•*–—]+", "", termino)  # elimina guiones/viñetas iniciales
-    termino = re.sub(r"\s+", " ", termino).strip()
-    if not termino:
-        return ""
+    termino = termino.strip("-–•*·●►▪—•1234567890. ").strip()
     if termino.isupper():
         return termino
     if re.match(r"^[A-Z][a-z]+(\s[A-Z][a-z]+)*$", termino):
         return termino
     return termino.lower()
+
+
+def limpiar_traduccion(traduccion):
+    traduccion = traduccion.strip("-–•*·●►▪—•1234567890. ").strip()
+    traduccion = re.sub(r"^(en|es|fr|de|it|pt)\s+", "", traduccion, flags=re.IGNORECASE)
+    return traduccion
+
 
 def extract_text(file):
     filename = file.filename.lower()
@@ -65,6 +70,7 @@ def extract_text(file):
 
     return text
 
+
 def get_terms_openai(text, source_lang, target_lang):
     if not text.strip():
         return ""
@@ -76,7 +82,7 @@ def get_terms_openai(text, source_lang, target_lang):
     )
 
     try:
-        response = client.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
@@ -84,6 +90,7 @@ def get_terms_openai(text, source_lang, target_lang):
     except Exception as e:
         print("OpenAI Error:", e)
         return ""
+
 
 def get_terms_deepseek(text, source_lang, target_lang):
     if not text.strip():
@@ -107,9 +114,11 @@ def get_terms_deepseek(text, source_lang, target_lang):
         print("DeepSeek Error:", e)
         return ""
 
+
 @app.route("/")
 def home():
     return render_template("index.html")
+
 
 @app.route("/process", methods=["POST"])
 def process_file():
@@ -122,24 +131,24 @@ def process_file():
     for file in uploaded_files:
         all_text += extract_text(file) + "\n"
 
-    blocks = [all_text[i:i+BLOCK_SIZE] for i in range(0, len(all_text), BLOCK_SIZE)]
+    blocks = [all_text[i:i + BLOCK_SIZE] for i in range(0, len(all_text), BLOCK_SIZE)]
     all_terms = []
 
     for block in blocks:
         raw = get_terms_deepseek(block, source_lang, target_lang) if provider == "deepseek" else get_terms_openai(block, source_lang, target_lang)
 
         for line in raw.splitlines():
-            line = line.strip().lstrip("-•*–—\t ").strip()
             if "\t" in line:
                 source, target = line.split("\t", 1)
-                source = limpiar_termino(source)
-                target = limpiar_termino(target)
-                if source and target and len(source) > 1 and len(target) > 1:
-                    term = {"source": source, "target": target}
-                    if term not in all_terms:
-                        all_terms.append(term)
+                term = {
+                    "source": limpiar_termino(source),
+                    "target": limpiar_traduccion(target)
+                }
+                if term not in all_terms:
+                    all_terms.append(term)
 
     return jsonify({"terms": all_terms, "source_lang": source_lang, "target_lang": target_lang})
+
 
 @app.route("/export", methods=["POST"])
 def export_selected():
@@ -159,6 +168,7 @@ def export_selected():
 
     return jsonify({"txt_file": "/download/txt", "excel_file": "/download/excel"})
 
+
 @app.route("/download/txt")
 def download_txt():
     return send_file(
@@ -166,6 +176,7 @@ def download_txt():
         as_attachment=True,
         download_name="glosario.txt"
     )
+
 
 @app.route("/download/excel")
 def download_excel():
@@ -175,9 +186,11 @@ def download_excel():
         download_name="glosario.xlsx"
     )
 
+
 @app.errorhandler(RequestEntityTooLarge)
 def file_too_large(e):
     return "🚫 El archivo supera el límite de 1 GB permitido.", 413
+
 
 if __name__ == "__main__":
     app.run(debug=True)

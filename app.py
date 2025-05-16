@@ -7,7 +7,7 @@ from lxml import etree
 import tempfile
 import re
 import requests
-import openai
+from openai import OpenAI
 from werkzeug.exceptions import RequestEntityTooLarge
 
 app = Flask(__name__)
@@ -16,9 +16,9 @@ app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB
 # Configurar claves desde entorno
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
-openai.api_key = OPENAI_KEY
+client = OpenAI(api_key=OPENAI_KEY)
 
-BLOCK_SIZE = 3000  # Segmentación para evitar timeouts
+BLOCK_SIZE = 1500  # Segmentación para evitar timeouts
 
 def limpiar_termino(termino):
     termino = re.sub(r"^[\-•*–—]+", "", termino)  # elimina guiones/viñetas iniciales
@@ -76,7 +76,7 @@ def get_terms_openai(text, source_lang, target_lang):
     )
 
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )

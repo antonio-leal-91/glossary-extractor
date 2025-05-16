@@ -64,7 +64,11 @@ def extract_text(file):
             text = " ".join(tree.xpath("//trans-unit/source/text()"))
 
         elif filename.endswith(".txt"):
-            text = file.read().decode("utf-8")
+            try:
+                text = file.read().decode("utf-8")
+            except UnicodeDecodeError:
+                file.seek(0)
+                text = file.read().decode("latin1", errors="ignore")
     except Exception as e:
         print("Error extrayendo texto:", e)
 

@@ -7,7 +7,7 @@ from lxml import etree
 import tempfile
 import re
 import requests
-from openai import OpenAI
+import openai
 from werkzeug.exceptions import RequestEntityTooLarge
 
 app = Flask(__name__)
@@ -16,13 +16,19 @@ app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB
 # Configurar claves desde entorno
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
-client = OpenAI(api_key=OPENAI_KEY)
+openai.api_key = OPENAI_KEY
 
-BLOCK_SIZE = 3000  # Segmentación
+BLOCK_SIZE = 3000  # Segmentación para evitar timeouts
 
 def limpiar_termino(termino):
-    termino = termino.strip(" \t\n\r•*-—–:;.0123456789").strip()
-    termino = re.sub(r"^\s*[A-Z]{2,3}\s*[:-]?\s*", "", termino)  # elimina códigos como 'DE:' al inicio
+    termino = re.sub(r"^[\-•*–—]+", "", termino)  # elimina guiones/viñetas iniciales
+    termino = re.sub(r"\s+", " ", termino).strip()
+    if not termino:
+        return ""
+    if termino.isupper():
+        return termino
+    if re.match(r"^[A-Z][a-z]+(\s[A-Z][a-z]+)*$", termino):
+        return termino
     return termino.lower()
 
 def extract_text(file):
@@ -64,14 +70,13 @@ def get_terms_openai(text, source_lang, target_lang):
         return ""
 
     prompt = (
-        f"Extrae términos clave del siguiente texto en {source_lang} y sugiere su traducción al {target_lang}. "
-        f"Un término por línea, separados por tabulador. Solo términos relevantes (tecnología, técnica, piezas, etc.), "
-        f"sin frases genéricas. Evita guiones u otros símbolos al inicio. Usa minúsculas salvo nombres propios o siglas.\n\n"
-        f"Texto:\n{text}"
+        f"Del siguiente texto en {source_lang}, extrae aproximadamente 10 términos clave por cada 1000 palabras, uno por línea. "
+        f"Para cada término, proporciona una traducción sugerida al {target_lang} separada por tabulador. Evita repeticiones. "
+        f"Conserva nombres propios y siglas, y usa minúsculas para términos generales.\n\nTexto:\n{text}"
     )
 
     try:
-        response = client.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
@@ -84,10 +89,9 @@ def get_terms_deepseek(text, source_lang, target_lang):
     if not text.strip():
         return ""
     prompt = (
-        f"Extrae términos clave del siguiente texto en {source_lang} y sugiere su traducción al {target_lang}. "
-        f"Un término por línea, separados por tabulador. Solo términos relevantes (tecnología, técnica, piezas, etc.), "
-        f"sin frases genéricas. Evita guiones u otros símbolos al inicio. Usa minúsculas salvo nombres propios o siglas.\n\n"
-        f"Texto:\n{text}"
+        f"Del siguiente texto en {source_lang}, extrae aproximadamente 10 términos clave por cada 1000 palabras, uno por línea. "
+        f"Para cada término, proporciona una traducción sugerida al {target_lang} separada por tabulador. Evita repeticiones. "
+        f"Conserva nombres propios y siglas, y usa minúsculas para términos generales.\n\nTexto:\n{text}"
     )
     try:
         response = requests.post(
@@ -125,11 +129,15 @@ def process_file():
         raw = get_terms_deepseek(block, source_lang, target_lang) if provider == "deepseek" else get_terms_openai(block, source_lang, target_lang)
 
         for line in raw.splitlines():
+            line = line.strip().lstrip("-•*–—\t ").strip()
             if "\t" in line:
                 source, target = line.split("\t", 1)
-                term = {"source": limpiar_termino(source), "target": limpiar_termino(target)}
-                if term not in all_terms:
-                    all_terms.append(term)
+                source = limpiar_termino(source)
+                target = limpiar_termino(target)
+                if source and target and len(source) > 1 and len(target) > 1:
+                    term = {"source": source, "target": target}
+                    if term not in all_terms:
+                        all_terms.append(term)
 
     return jsonify({"terms": all_terms, "source_lang": source_lang, "target_lang": target_lang})
 

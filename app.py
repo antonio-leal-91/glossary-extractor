@@ -18,23 +18,12 @@ OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
 client = OpenAI(api_key=OPENAI_KEY)
 
-BLOCK_SIZE = 3000  # Segmentación para evitar timeouts
-
+BLOCK_SIZE = 3000  # Segmentación
 
 def limpiar_termino(termino):
-    termino = termino.strip("-–•*·●►▪—•1234567890. ").strip()
-    if termino.isupper():
-        return termino
-    if re.match(r"^[A-Z][a-z]+(\s[A-Z][a-z]+)*$", termino):
-        return termino
+    termino = termino.strip(" \t\n\r•*-—–:;.0123456789").strip()
+    termino = re.sub(r"^\s*[A-Z]{2,3}\s*[:-]?\s*", "", termino)  # elimina códigos como 'DE:' al inicio
     return termino.lower()
-
-
-def limpiar_traduccion(traduccion):
-    traduccion = traduccion.strip("-–•*·●►▪—•1234567890. ").strip()
-    traduccion = re.sub(r"^(en|es|fr|de|it|pt)\s+", "", traduccion, flags=re.IGNORECASE)
-    return traduccion
-
 
 def extract_text(file):
     filename = file.filename.lower()
@@ -70,15 +59,15 @@ def extract_text(file):
 
     return text
 
-
 def get_terms_openai(text, source_lang, target_lang):
     if not text.strip():
         return ""
 
     prompt = (
-        f"Del siguiente texto en {source_lang}, extrae aproximadamente 10 términos clave por cada 1000 palabras, uno por línea. "
-        f"Para cada término, proporciona una traducción sugerida al {target_lang} separada por tabulador. Evita repeticiones. "
-        f"Conserva nombres propios y siglas, y usa minúsculas para términos generales.\n\nTexto:\n{text}"
+        f"Extrae términos clave del siguiente texto en {source_lang} y sugiere su traducción al {target_lang}. "
+        f"Un término por línea, separados por tabulador. Solo términos relevantes (tecnología, técnica, piezas, etc.), "
+        f"sin frases genéricas. Evita guiones u otros símbolos al inicio. Usa minúsculas salvo nombres propios o siglas.\n\n"
+        f"Texto:\n{text}"
     )
 
     try:
@@ -91,14 +80,14 @@ def get_terms_openai(text, source_lang, target_lang):
         print("OpenAI Error:", e)
         return ""
 
-
 def get_terms_deepseek(text, source_lang, target_lang):
     if not text.strip():
         return ""
     prompt = (
-        f"Del siguiente texto en {source_lang}, extrae aproximadamente 10 términos clave por cada 1000 palabras, uno por línea. "
-        f"Para cada término, proporciona una traducción sugerida al {target_lang} separada por tabulador. Evita repeticiones. "
-        f"Conserva nombres propios y siglas, y usa minúsculas para términos generales.\n\nTexto:\n{text}"
+        f"Extrae términos clave del siguiente texto en {source_lang} y sugiere su traducción al {target_lang}. "
+        f"Un término por línea, separados por tabulador. Solo términos relevantes (tecnología, técnica, piezas, etc.), "
+        f"sin frases genéricas. Evita guiones u otros símbolos al inicio. Usa minúsculas salvo nombres propios o siglas.\n\n"
+        f"Texto:\n{text}"
     )
     try:
         response = requests.post(
@@ -114,11 +103,9 @@ def get_terms_deepseek(text, source_lang, target_lang):
         print("DeepSeek Error:", e)
         return ""
 
-
 @app.route("/")
 def home():
     return render_template("index.html")
-
 
 @app.route("/process", methods=["POST"])
 def process_file():
@@ -131,7 +118,7 @@ def process_file():
     for file in uploaded_files:
         all_text += extract_text(file) + "\n"
 
-    blocks = [all_text[i:i + BLOCK_SIZE] for i in range(0, len(all_text), BLOCK_SIZE)]
+    blocks = [all_text[i:i+BLOCK_SIZE] for i in range(0, len(all_text), BLOCK_SIZE)]
     all_terms = []
 
     for block in blocks:
@@ -140,15 +127,11 @@ def process_file():
         for line in raw.splitlines():
             if "\t" in line:
                 source, target = line.split("\t", 1)
-                term = {
-                    "source": limpiar_termino(source),
-                    "target": limpiar_traduccion(target)
-                }
+                term = {"source": limpiar_termino(source), "target": limpiar_termino(target)}
                 if term not in all_terms:
                     all_terms.append(term)
 
     return jsonify({"terms": all_terms, "source_lang": source_lang, "target_lang": target_lang})
-
 
 @app.route("/export", methods=["POST"])
 def export_selected():
@@ -168,7 +151,6 @@ def export_selected():
 
     return jsonify({"txt_file": "/download/txt", "excel_file": "/download/excel"})
 
-
 @app.route("/download/txt")
 def download_txt():
     return send_file(
@@ -176,7 +158,6 @@ def download_txt():
         as_attachment=True,
         download_name="glosario.txt"
     )
-
 
 @app.route("/download/excel")
 def download_excel():
@@ -186,11 +167,9 @@ def download_excel():
         download_name="glosario.xlsx"
     )
 
-
 @app.errorhandler(RequestEntityTooLarge)
 def file_too_large(e):
     return "🚫 El archivo supera el límite de 1 GB permitido.", 413
-
 
 if __name__ == "__main__":
     app.run(debug=True)

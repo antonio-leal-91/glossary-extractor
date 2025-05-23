@@ -74,6 +74,7 @@ def extract_text(file):
 
     return text
 
+from openai import OpenAI
 
 def get_terms_openai(text, source_lang, target_lang):
     if not text.strip():
@@ -85,8 +86,10 @@ def get_terms_openai(text, source_lang, target_lang):
         f"Conserva nombres propios y siglas, y usa minúsculas para términos generales.\n\nTexto:\n{text}"
     )
 
+    client = OpenAI()  # Asegúrate de que tu API key esté configurada en el entorno
+
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
@@ -94,6 +97,7 @@ def get_terms_openai(text, source_lang, target_lang):
     except Exception as e:
         print("OpenAI Error:", e)
         return ""
+
 
 
 def get_terms_deepseek(text, source_lang, target_lang):
